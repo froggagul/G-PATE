@@ -3,8 +3,7 @@
 
 import numpy as np
 import argparse
-
-
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
 
@@ -67,12 +66,20 @@ def pipeline():
     train_accs = []
     eval_accs = []
     #     for i in range(70):
-    history = model.fit(x, label, batch_size=512, epochs=600, validation_data=(x_test, y_test), shuffle=True)
-    train_accs = history.history['acc']
-    eval_accs = history.history['val_acc']
+    history = model.fit(x, label, batch_size=512, epochs=500, validation_data=(x_test, y_test), shuffle=True)
+    train_accs = history.history['accuracy']
+    eval_accs = history.history['val_accuracy']
     return train_accs, eval_accs
 
 
 train_accs, eval_accs = pipeline()
 print("Max eval acc:", max(eval_accs))
 print("Max train acc:", max(train_accs))
+import uuid
+
+filepath = uuid.uuid4()
+
+np.save(f'results/{filepath}_train', train_accs)
+np.save(f'results/{filepath}_eval', eval_accs)
+
+print(filepath)
