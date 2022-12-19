@@ -1,4 +1,6 @@
 mnist*/
 results/
 __pycache__/
+time_teacher_4000_z_dim_50_c_1e-4/
+data/
 

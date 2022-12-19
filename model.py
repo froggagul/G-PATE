@@ -160,6 +160,7 @@ class DCGAN(object):
         self.rdp_counter = np.zeros(self.orders.shape)
 
         # Load the dataset, ignore test data for now
+        # todo - extensible data loading
         if self.dataset_name == 'mnist':
             self.data_X, self.data_y = self.load_mnist()
             self.c_dim = self.data_X[0].shape[-1]
@@ -252,6 +253,20 @@ class DCGAN(object):
             self.data_y = None
             self.train_size, self.input_size = self.data_X.shape
             self.output_size = self.input_size
+            self.y_dim = None
+            self.crop = False
+            if self.pca_dim > self.input_size:
+                self.pca_dim = self.input_size
+        elif 'time' == self.dataset_name:
+            self.data_X = self.load_time_data()
+            self.data_y = None
+            self.train_size, self.input_size = self.data_X.shape
+            self.input_width = self.input_size
+            self.input_height = 1 # time series data
+            self.output_height = self.input_height
+            self.output_width = self.input_width
+            self.c_dim = 1
+            self.y = None
             self.y_dim = None
             self.crop = False
             if self.pca_dim > self.input_size:
@@ -611,6 +626,9 @@ class DCGAN(object):
 
         return X / 255., y_vec
 
+    def load_time_data(self):
+        raise NotImplementedError("use Time Series DCGAN to use time data")
+
     def build_model(self):
         if self.crop:
             image_dims = [self.output_height, self.output_width, self.c_dim]
@@ -620,6 +638,8 @@ class DCGAN(object):
         self.inputs = tf.placeholder(
             tf.float32, [self.batch_size] + [self.input_height, self.input_width, self.c_dim], name='real_images')
         self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
+
+        print('y', self.y)
 
         self.image_dims = image_dims
 
@@ -706,7 +726,7 @@ class DCGAN(object):
         self.g_save_vars = [var for var in t_vars if 'g_' in var.name]
         self.d_save_vars = [var for var in t_vars if 'd_' in var.name]
         # print(self.d_save_vars)
-        print(self.save_vars)
+        # print(self.save_vars)
         # self.d_save_vars = {'k': v for k, v in zip(self.d_save_vars, self.d_save_vars)}
         self.saver = tf.train.Saver(max_to_keep=5, var_list=self.save_vars)
         self.saver_g = tf.train.Saver(max_to_keep=5, var_list=self.g_save_vars)
@@ -827,6 +847,7 @@ class DCGAN(object):
             for idx in xrange(0, batch_idxs):
 
                 batch_z = np.random.uniform(-1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
+                batch_z = batch_z.reshape([self.batch_size, self.z_dim])
 
                 errD = 0
                 # train teacher models in batches, teachers_batch: how many batches of teacher
@@ -856,9 +877,11 @@ class DCGAN(object):
 
                         batch_idx = range(idx * self.batch_size, (idx + 1) * self.batch_size)
                         batch_images = data_X[batch_idx]
-
+                        batch_images = batch_images.reshape(
+                          [self.batch_size, self.input_height, self.input_width, self.c_dim]
+                        )
                         for k in range(config.d_step):
-                            if self.y is not None:
+                            if self.y is not None and False: # todo - self.y validation
                                 # data_y = self.data_y if config.non_private else self.train_label_list[teacher_id+batch_num*self.batch_teachers]
                                 data_y = self.train_label_list[teacher_id+batch_num*self.batch_teachers]
                                 #print(data_y.shape)
@@ -881,11 +904,16 @@ class DCGAN(object):
                                 # print(str(batch_num*self.batch_teachers + teacher_id) + "loss:"+str(err))
                                 errD += err
                             else:
-                                _, summary_str = self.sess.run([d_optim_list[teacher_id], self.d_sum_list[teacher_id]],
-                                                               feed_dict={
-                                                                   self.inputs: batch_images,
-                                                                   self.z: batch_z,
-                                                               })
+                                _, summary_str = self.sess.run(
+                                    [
+                                      d_optim_list[teacher_id],
+                                      self.d_sum_list[teacher_id]
+                                    ],
+                                    feed_dict={
+                                      self.inputs: batch_images,
+                                      self.z: batch_z
+                                    }
+                                  )
 
                                 self.writer.add_summary(summary_str, epoch)
 
@@ -902,7 +930,7 @@ class DCGAN(object):
                 for k in range(config.g_step):
                     errG = 0
                     img_grads_list = []
-                    if self.y is not None:
+                    if self.y is not None and False:
                         batch_labels = self.get_random_labels(self.batch_size)
                         for batch_num in range(self.teachers_batch):
                             could_load, checkpoint_counter = self.load_d(self.teacher_dir, epoch=epoch,
@@ -984,6 +1012,7 @@ class DCGAN(object):
 
                             gen_batch = 100000 // self.batch_size + 1
                             data = self.gen_data(gen_batch)
+                            print(data.shape)
                             data = data[:100000]
                             import joblib
                             joblib.dump(data, self.checkpoint_dir + '/eps-%.2f.data' % self.dp_eps_list[-1])
@@ -994,7 +1023,7 @@ class DCGAN(object):
                     self.rdp_eps_list.append(self.rdp_counter)
 
                     # Update G network
-                    if self.y is not None:
+                    if self.y is not None and False:
                         _, summary_str, errG2 = self.sess.run([g_optim, self.g_sum, self.g_loss],
                                                        feed_dict={
                                                            self.z: batch_z,
@@ -1022,8 +1051,8 @@ class DCGAN(object):
                         })
 
                 counter += 1
-                print("Epoch: [%2d/%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, g_loss_before: %.8f, dp_eps: %.8f, rdp_order: %d" \
-                      % (epoch, config.epoch, idx, batch_idxs, time.time() - start_time, errD, errG, errG2, eps, order))
+                print("Epoch: [%2d/%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, dp_eps: %.8f, rdp_order: %d" \
+                      % (epoch, config.epoch, idx, batch_idxs, time.time() - start_time, errD, errG, eps, order))
             # filename = 'epoch'+str(epoch)+'_errD'+str(errD)+'_errG'+str(errG)+'_teachers'+str(self.batch_teachers)+'f.csv'
             # if epoch % 4 == 0:
             print('----------------------generate sample----------------------')
@@ -1133,7 +1162,7 @@ class DCGAN(object):
         for i in range(n_batch):
             batch_z = np.random.uniform(-1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
 
-            if self.y is not None:
+            if self.y is not None and False:
                 if label is None:
                     batch_labels = self.get_random_labels(self.batch_size)
                 else:
@@ -1156,7 +1185,6 @@ class DCGAN(object):
                 outputs = outputsX
 
             output_list.append(outputs)
-
         output_arr = np.vstack(output_list)
         return output_arr
 

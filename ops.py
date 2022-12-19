@@ -108,3 +108,51 @@ def linear(input_, output_size, scope=None, stddev=0.02, bias_start=0.0, with_w=
       return tf.matmul(input_, matrix) + bias, matrix, bias
     else:
       return tf.matmul(input_, matrix) + bias
+
+
+def mlp(x, d_in, d_out, d_layers, dropout, name, stddev=0.02):
+  
+  def single_layer(x, layer_d_in, layer_d_out, i):
+
+    w = tf.get_variable(
+        f'layer_{i}_w',
+        [layer_d_in, layer_d_out],
+        tf.float32,
+        initializer = tf.random_normal_initializer(stddev=stddev)
+      )
+    b = tf.get_variable(
+        f'layer_{i}_b',
+        [layer_d_out],
+        initializer = tf.constant_initializer(0.0)
+      )
+    x = lrelu(tf.nn.xw_plus_b(x, w, b, name=f'layer_{i}'))
+    # todo - dropout
+    return x
+    
+  with tf.variable_scope(name):
+    for i in range(len(d_layers) + 1):
+      layer_d_in = d_layers[i - 1] if i != 0 else d_in
+      layer_d_out = d_layers[i] if i != len(d_layers) else d_out
+      x = single_layer(x, layer_d_in, layer_d_out, i)
+    
+    out = tf.nn.sigmoid(x)
+    return out
+
+def lstm(x, d_in, d_hidden, d_out, name):
+  with tf.variable_scope(name):
+    cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=d_hidden, state_is_tuple=True)
+    # todo - multiple layers in lstm
+    batch_size, single_sequence_length, _ = x.get_shape().as_list()
+
+    x, _ = tf.nn.dynamic_rnn(
+        cell,
+        x,
+        sequence_length = [single_sequence_length] * batch_size,
+        dtype=tf.float32
+      )
+    x = x[:, -1, :] # we use batch first
+    x = lrelu(linear(x, d_out, stddev=0.02, bias_start=0.0))
+
+    out = tf.math.sigmoid(x)
+    return out
+

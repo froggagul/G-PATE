@@ -1,8 +1,15 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import scipy.misc
 import numpy as np
 
+from models.timeseries_dcgan import TimeSeriesDCGAN
 from model import DCGAN
+
 from utils import pp, visualize, to_json, show_all_variables, mkdir
 
 import tensorflow as tf
@@ -11,6 +18,7 @@ from gen_data import batch2str
 import sys
 import pickle
 
+tf.enable_eager_execution()
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 flags = tf.app.flags
@@ -96,9 +104,14 @@ def main(_):
         FLAGS.learning_rate = 5e-5
         FLAGS.step_size = 5e-4
 
+    if FLAGS.dataset == 'time':
+      model = TimeSeriesDCGAN
+    else:
+      model = DCGAN
+
     with tf.Session(config=run_config) as sess:
 
-        dcgan = DCGAN(
+        dcgan = model(
             sess,
             batch_size=FLAGS.batch_size,
             sample_num=FLAGS.batch_size,
@@ -144,8 +157,10 @@ def main(_):
             os.makedirs(outpath)
 
         outfile = os.path.join(outpath, filename)
-        n_batch = 100000 // FLAGS.batch_size + 1
+        n_batch = 100000 // dcgan.batch_size + 1
+        print(n_batch, dcgan.batch_size)
         data = dcgan.gen_data(n_batch)
+        print(data.shape)
         data = data[:100000]
         import joblib
         joblib.dump(data, outfile)
